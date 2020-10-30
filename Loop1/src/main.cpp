@@ -13,34 +13,18 @@
 
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
-  /*if (rank == 0 && size > 0)
-  {
-    for (uint32_t y = 0; y < ySize; y++)
-    {
-      for (uint32_t x = 0; x < xSize; x++)
-      {
-        arr[y*xSize + x] = sin(0.00001*arr[y*xSize + x]);
-      }
-    }
-  }*/
   assert(size > 0);
 
   uint32_t token_size = (ySize * xSize) / size;
-  /*std::string msg = "ySize: " + std::to_string(ySize) +
-   ", xSize: " + std::to_string(xSize) + ", rank: " + std::to_string(rank) +
-    ", token_size: " + std::to_string(token_size) +
-    ", token_size * rank: " + std::to_string(token_size * (rank + 1)) + "\n";*/
+  int rest_size = xSize * ySize % size;
 
-  /*std::string msg = "rank: " + std::to_string(rank) + ", data[0]: " + std::to_string(arr[0]) + "\n";
-
-  std::cout << msg;*/
- /* std::cout << "token_size: " << token_size << std::endl;
-  std::cout << "rank: " << rank << ", token_size * rank: " << token_size * rank << std::endl;*/
-  //for(uint32_t i(token_size * rank); i < token_size * (rank + 1); ++i)
+  if((rest_size != 0) && (rank == size - 1)) // the rest of data
+  {
+    token_size += rest_size;
+  }
   for(uint32_t i(0); i < token_size; ++i)
   {
     arr[i] = sin(0.00001*arr[i]);
-    // std::cout << i << " ";
   }
   
 }
@@ -62,55 +46,53 @@ void send_data_from_root(uint32_t ySize, uint32_t xSize, int size, double* arr)
   int rest_size = (xSize * ySize) % size;
   if(rest_size == 0) // scalable
   {
-    std::cout << "scalable!\n";
-    for(int i(1); i < size - 1; ++i)
+    for(int i(1); i < size; ++i)
     {
       double* data = arr + (i * token_size);
-      std::string msg = "arr[" + std::to_string((i * token_size)) + "] = " + std::to_string(arr[(i * token_size)]) +
-      ", data[" + std::to_string(i) + "] = " + std::to_string(data[0]) + "\n";
-      // std::cout << msg;
       MPI_Send(data, token_size, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
     }
   }
   else
   {
-      double* data = arr + ((size - 1) * token_size);
-      /*std::string msg = "arr[" + std::to_string((i * token_size)) + "] = " + std::to_string(arr[(i * token_size)]) +
-      ", data[" + std::to_string(i) + "] = " + std::to_string(data[0]) + "\n";*/
-      // std::cout << msg;
-      MPI_Send(data, token_size + rest_size, MPI_DOUBLE, size - 1, 0, MPI_COMM_WORLD);
+    for(int i(1); i < size - 1; ++i)
+    {
+      double* data = arr + (i * token_size);
+      MPI_Send(data, token_size, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
+    }
+    double* data = arr + ((size - 1) * token_size);
+    MPI_Send(data, token_size + rest_size, MPI_DOUBLE, size - 1, 0, MPI_COMM_WORLD);
   }
 }
 
-double* recv_data_from_root(uint32_t ySize, uint32_t xSize, int size, double* data)
+double* recv_data_from_root(int rank, uint32_t ySize, uint32_t xSize, int size, double* data)
 {
   int token_size = xSize * ySize / size;
   int rest_size = xSize * ySize % size;
-  if(rest_size == 0) // scalable
-  {
-    data = new double[token_size];
-    MPI_Recv(data, token_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  }
-  else
+ 
+  if((rank == size - 1) && (rest_size != 0))
   {
     data = new double[token_size + rest_size];
     MPI_Recv(data, token_size + rest_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
   }
-  // print_arr(token_size, data);
+  else
+  {
+    data = new double[token_size];
+    MPI_Recv(data, token_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  }
   return data;
 }
 
-void send_data_from_process(int ySize, int xSize, int size, double* data)
+void send_data_from_process(int rank, int ySize, int xSize, int size, double* data)
 {
   int token_size = xSize * ySize / size;
-  int rest_size = xSize * ySize % size;
-  if(rest_size == 0) // scalable
-  {
-    MPI_Send(data, token_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
-  }
-  else
+  int rest_size = (xSize * ySize) % size;
+  if((rank == size - 1) && (rest_size != 0))
   {
     MPI_Send(data, token_size + rest_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+  }
+  else // scalable
+  {
+    MPI_Send(data, token_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
   }
 }
 
@@ -203,7 +185,7 @@ int main(int argc, char** argv)
     MPI_Bcast(&xSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
     
     /*double* data = nullptr;*/
-    data = recv_data_from_root(xSize, ySize, size, data);
+    data = recv_data_from_root(rank, xSize, ySize, size, data);
     
   }
 
@@ -233,7 +215,7 @@ int main(int argc, char** argv)
   }
   else
   {
-    send_data_from_process(xSize, ySize, size, data);
+    send_data_from_process(rank, xSize, ySize, size, data);
   }
   // delete arr;
 
