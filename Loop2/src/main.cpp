@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <cmath>
 
-enum { OFFSET = 7 };
+enum { OFFSET = 3 };
 
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
@@ -21,15 +21,15 @@ void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
   }
   if(rank != size - 1)
   {
-    token_size += OFFSET;
+    token_size += xSize - OFFSET;
   }
 
   for(int i(0); i < token_size; ++i)
   {
     int j = token_offset + i;
-    if((j % xSize > 2) && (j % xSize < xSize) && (j < xSize * ySize - xSize))
+    if((j % xSize >= OFFSET) && (j < xSize * ySize - xSize))
     {
-      arr[i] = sin(0.00001 * arr[i + OFFSET]);
+      arr[i] = sin(0.00001 * arr[i + xSize - OFFSET]);
     }
   }
 }
@@ -50,12 +50,13 @@ void send_data_from_root(uint32_t ySize, uint32_t xSize, int size, double* arr)
 {
   int token_size = xSize * ySize / size;
   int rest_size = (xSize * ySize) % size;
+  int offset = xSize - OFFSET;
   if(rest_size == 0) // scalable
   {
     for(int i(1); i < size - 1; ++i)
     {
       double* data = arr + (i * token_size);
-      MPI_Send(data, token_size + OFFSET, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
+      MPI_Send(data, token_size + offset, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
     }
     if(size > 1)
     {
@@ -68,7 +69,7 @@ void send_data_from_root(uint32_t ySize, uint32_t xSize, int size, double* arr)
     for(int i(1); i < size - 1; ++i)
     {
       double* data = arr + (i * token_size);
-      MPI_Send(data, token_size + OFFSET, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
+      MPI_Send(data, token_size + offset, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
     }
     double* data = arr + ((size - 1) * token_size);
     MPI_Send(data, token_size + rest_size, MPI_DOUBLE, size - 1, 0, MPI_COMM_WORLD);
@@ -79,6 +80,7 @@ double* recv_data_from_root(int rank, uint32_t ySize, uint32_t xSize, int size, 
 {
   int token_size = xSize * ySize / size;
   int rest_size = xSize * ySize % size;
+  int offset = xSize - OFFSET;
  
   if((rank == size - 1) && (rest_size != 0))
   {
@@ -94,8 +96,8 @@ double* recv_data_from_root(int rank, uint32_t ySize, uint32_t xSize, int size, 
     }
     else
     {
-      data = new double[token_size + OFFSET];
-      MPI_Recv(data, token_size + OFFSET, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      data = new double[token_size + offset];
+      MPI_Recv(data, token_size + offset, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
   }
   return data;
