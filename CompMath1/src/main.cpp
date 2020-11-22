@@ -26,7 +26,7 @@ void calc(double* trace, double v0, uint32_t traceSize, double t0, double dt, do
 
     for (uint32_t i = 2; i < uint32_t(token_size); i++)
     {
-        trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
+        trace[i] = dt*dt*acceleration(t0 + (rank * token_size + i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
     }
 }
 
