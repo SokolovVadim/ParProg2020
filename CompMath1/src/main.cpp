@@ -12,41 +12,15 @@ double acceleration(double t)
 
 void print_arr(uint32_t size, double* arr);
 
-void calc(double* trace, uint32_t traceSize, double t0, double dt, double y0, double y1, int rank, int size)
+void calc(double* trace, double v0, uint32_t traceSize, double t0, double dt, double y0, int rank, int size)
 {
-/*  // Sighting shot
-  double v0 = 0;
-  if (rank == 0 && size > 0)
-  {
-    trace[0] = y0;
-    trace[1] = y0 + dt*v0;
-    for (uint32_t i = 2; i < traceSize; i++)
-    {
-      trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
-    }
-  }
-
-  // The final shot
-  if (rank == 0 && size > 0)
-  {
-    v0 = (y1 - trace[traceSize - 1])/(dt*traceSize);
-    trace[0] = y0;
-    trace[1] = y0 + dt*v0;
-    for (uint32_t i = 2; i < traceSize; i++)
-    {
-      trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
-    }
-  }*/
-
     int token_size = traceSize / size;
     int rest_size = traceSize % size;
     if((rest_size != 0) && (rank == size - 1)) // last process
     {
         token_size += rest_size;
     }
-    if(rank != 0)
-        trace = new double[token_size];
-    double v0 = 0;
+    
     trace[0] = y0;
     trace[1] = y0 + dt * v0;
 
@@ -73,6 +47,8 @@ struct Node
 {
     double a;
     double v;
+    double A;
+    double V;
     double u;
     double left_border;
     double right_border;
@@ -83,32 +59,35 @@ void send_end_data_to_root(double* trace, int traceSize, int rank, int size)
 {
     int token_size = traceSize / size;
     int rest_size = traceSize % size;
+    std::cout << "token_size = " << token_size << std::endl;
     if((rest_size != 0) && (rank == size - 1)) // last process
     {
         token_size += rest_size;
     }
-    double data[END_DATA_SIZE] = {};
-    data[0] = trace[0];
+    double* data = new double[END_DATA_SIZE];
+    data[0] = trace[token_size - 2];
     data[1] = trace[token_size - 1];
-    MPI_Send(data, END_DATA_SIZE, MPI_DOUBLE, rank, 0, MPI_COMM_WORLD);
+    MPI_Send(data, END_DATA_SIZE, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    delete[] data;
 }
 
-void recv_end_data_in_root(Node* tokens, int traceSize, int rank, int size)
+void recv_end_data_in_root(Node* tokens, int size)
 {
     /*int token_size = traceSize / size;
     int rest_size = traceSize % size;*/
-    double data[END_DATA_SIZE];
+    double* data = new double[END_DATA_SIZE];
     //double end_data[END_DATA_SIZE * size];
     for(int i(1); i < size; ++i)
     {
         // double* ptr = end_data + (i - 1) * END_DATA_SIZE;
         MPI_Recv(data, END_DATA_SIZE, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        tokens[i].left_border = data[0];
+        tokens[i].left_border  = data[0];
         tokens[i].right_border = data[1];
     }
+    delete[] data;
 }
 
-void calculate_last_point(Node* tokens, double dt, int traceSize, int size)
+double calculate_last_point(Node* tokens, double dt, int traceSize, int size)
 {
     int token_size = traceSize / size;
     int rest_size = traceSize % size;
@@ -121,9 +100,9 @@ void calculate_last_point(Node* tokens, double dt, int traceSize, int size)
         tokens[size - 1].token_size = token_size + rest_size;
     }
 
-    for(int i(0); i < size - 1; ++i)
+    for(int i(0); i < size; ++i)
     {
-        tokens[i].u = (tokens[i + 1].left_border - tokens[i].right_border) / dt;
+        tokens[i].u = (tokens[i].right_border - tokens[i].left_border) / dt;
     }
     for(int i(1); i < size; ++i)
     {
@@ -133,8 +112,96 @@ void calculate_last_point(Node* tokens, double dt, int traceSize, int size)
     {
         tokens[i].a = tokens[i - 1].right_border + tokens[i - 1].a + tokens[i - 1].v * (tokens[i - 1].token_size * dt);
     }
+    double last_point = tokens[size - 1].right_border + tokens[size - 1].a + tokens[size - 1].v * (tokens[size - 1].token_size * dt);
+    return last_point;
 }
 
+double calculate_initial_speed(double last_point, double y1, double t0, double t1)
+{
+    double initial_speed = (y1 - last_point) / (t1 - t0);
+    return initial_speed;
+}
+
+/*void calculate_speed_and_trace(Node* tokens, double dt, int size)
+{
+    for(int i(1); i < size; ++i)
+    {
+        tokens[i].V = tokens[i - 1].u + tokens[i - 1].V;
+        tokens[i].A = tokens[i - 1].right_border + tokens[i - 1].A + tokens[i - 1].V * (tokens[i - 1].token_size * dt);
+    } 
+}*/
+
+void consider_initial_speed(double* trace, int traceSize, double initial_speed, double dt, int rank, int size)
+{
+    int token_size = traceSize / size;
+    int rest_size = traceSize % size;
+
+    for(int i(0); i < token_size + rest_size; ++i)
+    {
+        // y[i] += i * v0*dt;
+        trace[i] += (i + rank * token_size) * initial_speed * dt;
+    }
+}
+
+void send_result_to_root(double* trace, int traceSize, int rank, int size)
+{
+    int token_size = traceSize / size;
+    int rest_size = traceSize % size;
+    if((rank == size - 1) && (rest_size != 0))
+    {
+      MPI_Send(trace, token_size + rest_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    }
+    else // scalable
+    {
+      MPI_Send(trace, token_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    }
+}
+
+void write_result(double* trace, int traceSize, char* filename, int size)
+{
+    int token_size = traceSize / size;
+    int rest_size = traceSize % size;
+
+    std::ofstream output(filename);
+    if (!output.is_open())
+    {
+        std::cout << "[Error] Can't open " << filename << " for read\n";
+        delete[] trace;
+        return;
+    }
+
+    for (int i = 0; i < token_size; i++)
+    {
+        output << " " << trace[i];
+    }
+
+    if(rest_size != 0)
+    {
+        for(int i(1); i < size - 1; ++i)
+        {
+            MPI_Recv(trace, token_size, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            for(int j(0); j < token_size; ++j)
+                output << " " << trace[j];
+        }
+        double* last_token = new double[token_size + rest_size];
+        MPI_Recv(last_token, token_size + rest_size, MPI_DOUBLE, size - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        for(int j(0); j < token_size + rest_size; ++j)
+            output << " " << trace[j];
+        delete[] last_token;
+    }
+    else
+    {
+        for(int i(1); i < size; ++i)
+        {
+            MPI_Recv(trace, token_size, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            for(int j(0); j < token_size; ++j)
+                output << " " << trace[j];
+        }
+    }
+
+    output << std::endl;
+    output.close();
+}
 
 int main(int argc, char** argv)
 {
@@ -195,9 +262,17 @@ int main(int argc, char** argv)
       MPI_Bcast(&y0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
       MPI_Bcast(&y1, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
       MPI_Bcast(&traceSize, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+      int token_size = traceSize / size;
+      int rest_size = traceSize % size;
+      if((rest_size != 0) && (rank == size - 1)) // last process
+      {
+          token_size += rest_size;
+      }
+      trace = new double[token_size];
   }
 
-  calc(trace, traceSize, t0, dt, y0, y1, rank, size);
+  calc(trace, 0, traceSize, t0, dt, y0, rank, size);
 
   if (rank == 0)
   {
@@ -208,34 +283,30 @@ int main(int argc, char** argv)
       tokens[0].v = 0;
       tokens[0].a = y0;
 
-      recv_end_data_in_root(tokens, traceSize, rank, size);
-      calculate_last_point(tokens, dt, traceSize, size);
-      /*calculate_initial_speed();
-      recv_results();*/
+      recv_end_data_in_root(tokens, size);
+      double last_point = calculate_last_point(tokens, dt, traceSize, size);
+      double initial_speed = calculate_initial_speed(last_point, y1, t0, t1);
+      std::cout << "initial_speed = " << initial_speed << std::endl;
+
+      // send_initial_speed_to_process
+      MPI_Bcast(&initial_speed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+      /*recv_results();*/
+      // tokens[0].V = initial_speed;
+      // calculate_speed_and_trace(tokens, dt, size);
 
 
-      // Prepare output file
-      std::ofstream output(argv[2]);
-      if (!output.is_open())
-      {
-          std::cout << "[Error] Can't open " << argv[2] << " for read\n";
-          delete[] trace;
-          return 1;
-      }
-
-      for (uint32_t i = 0; i < traceSize; i++)
-      {
-          output << " " << trace[i];
-      }
-      output << std::endl;
-      output.close();
+      write_result(trace, traceSize, argv[2], size);
       delete[] trace;
+      delete[] tokens;
   }
   else
   {
+
       send_end_data_to_root(trace, traceSize, rank, size);
-     /* calculate_right_trace();
-      send_result_to_root();*/
+      double initial_speed(0.0);
+      MPI_Bcast(&initial_speed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+      consider_initial_speed(trace, traceSize, initial_speed, dt, rank, size);
+      send_result_to_root(trace, traceSize, rank, size);
   }
 
   MPI_Finalize();
