@@ -1,7 +1,7 @@
 #! /bin/bash
 # run.sh <number of repetitions>
 compiler="mpic++"
-flags="-std=c++11 -Wall -Wextra -Werror"
+flags="-std=c++11 -Wall -Wextra"
 src="./src/main.cpp"
 build="./build"
 exe="$build/task"
@@ -26,7 +26,7 @@ SUCCESS_TESTS=()
 FAIL_TESTS=()
 
 for test_dir in $tests_dir/*; do
-  for proc in {1..8}; do
+  for proc in {1..1}; do
     test="$(basename $test_dir)_p$proc"
     printf "\n[TEST $test]\n"
     echo "mpiexec -np $proc $exe $test_dir/input.txt $build/$test.txt"

@@ -1,7 +1,7 @@
 #! /bin/bash
 # run.sh <number of repetitions>
 compiler="mpic++"
-flags="-std=c++11 -Wall -Wextra -Werror"
+flags="-std=c++11 -Wall -Wextra"
 src="./src/main.cpp"
 build="./build"
 exe="$build/task"
