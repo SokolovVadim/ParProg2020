@@ -28,6 +28,8 @@ void calc(double* trace, double v0, uint32_t traceSize, double t0, double dt, do
     {
         trace[i] = dt*dt*acceleration(t0 + (rank * token_size + i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
     }
+
+    // print_arr(token_size, trace);
 }
 
 void print_arr(uint32_t size, double* arr)
@@ -59,7 +61,7 @@ void send_end_data_to_root(double* trace, int traceSize, int rank, int size)
 {
     int token_size = traceSize / size;
     int rest_size = traceSize % size;
-    std::cout << "token_size = " << token_size << std::endl;
+    // std::cout << "token_size = " << token_size << std::endl;
     if((rest_size != 0) && (rank == size - 1)) // last process
     {
         token_size += rest_size;
@@ -116,9 +118,9 @@ double calculate_last_point(Node* tokens, double dt, int traceSize, int size)
     return last_point;
 }
 
-double calculate_initial_speed(double last_point, double y1, double t0, double t1)
+double calculate_initial_speed(double last_point, double y1, double dt, double traceSize)
 {
-    double initial_speed = (y1 - last_point) / (t1 - t0);
+    double initial_speed = (y1 - last_point) / (dt * traceSize);
     return initial_speed;
 }
 
@@ -238,7 +240,7 @@ int main(int argc, char** argv)
       // Read arguments from input
       input >> t0 >> t1 >> dt >> y0 >> y1;
       MPI_Bcast(&status, 1, MPI_INT, 0, MPI_COMM_WORLD);
-      traceSize = (t1 - t0)/dt;
+      traceSize = (t1 - t0) / dt;
       trace = new double[traceSize / size];
       input.close();
 
@@ -280,20 +282,23 @@ int main(int argc, char** argv)
       tokens[0].token_size   = traceSize / size;
       tokens[0].left_border  = trace[0];
       tokens[0].right_border = trace[(traceSize / size) - 1];
+      // std::cout << "right_border: " << tokens[0].right_border << std::endl;
       tokens[0].v = 0;
       tokens[0].a = y0;
 
       recv_end_data_in_root(tokens, size);
       double last_point = calculate_last_point(tokens, dt, traceSize, size);
-      double initial_speed = calculate_initial_speed(last_point, y1, t0, t1);
-      std::cout << "initial_speed = " << initial_speed << std::endl;
+      double initial_speed = calculate_initial_speed(last_point, y1, dt, traceSize);
+      // std::cout << "last_point = " << last_point << std::endl;
+      // std::cout << "initial_speed = " << initial_speed << std::endl;
 
       // send_initial_speed_to_process
       MPI_Bcast(&initial_speed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
       /*recv_results();*/
       // tokens[0].V = initial_speed;
       // calculate_speed_and_trace(tokens, dt, size);
-
+      consider_initial_speed(trace, traceSize / size, initial_speed, dt, rank, size);
+      // print_arr(traceSize / size, trace);
 
       write_result(trace, traceSize, argv[2], size);
       delete[] trace;
